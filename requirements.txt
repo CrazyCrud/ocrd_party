@@ -1,0 +1,4 @@
+kraken==5.30
+ocrd
+party>=0.0.1
+albumentations==1.4.0

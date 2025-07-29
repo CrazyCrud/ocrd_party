@@ -1,0 +1,56 @@
+{
+  "git_url": "https://github.com/CrazyCrud/ocrd_party",
+  "dockerhub": "ocrd/party",
+  "version": "0.1.0",
+  "tools": {
+    "ocrd-party-recognize": {
+      "executable": "ocrd-party-recognize",
+      "categories": [
+        "Text recognition and optimization"
+      ],
+      "steps": [
+        "recognition/text-recognition"
+      ],
+      "description": "Recognize text lines with the Party OCR engine",
+      "input_file_grp_cardinality": 1,
+      "output_file_grp_cardinality": 1,
+      "parameters": {
+        "model_dir": {
+          "description": "Directory containing Party model file (model.safetensors)",
+          "type": "string",
+          "format": "uri",
+          "content-type": "text/directory",
+          "required": true
+        },
+        "device": {
+          "description": "Compute device (e.g. 'cpu' or 'cuda:0') for inference",
+          "type": "string",
+          "default": "cpu"
+        },
+        "batch_size": {
+          "description": "Number of lines to recognize in parallel batches",
+          "type": "integer",
+          "format": "int32",
+          "default": 4
+        },
+        "autocast": {
+          "description": "Enable mixed‑precision (if supported by device)",
+          "type": "boolean",
+          "default": false
+        },
+        "text_direction": {
+          "description": "Principal text direction for reading order",
+          "type": "string",
+          "enum": [
+            "horizontal-lr",
+            "horizontal-rl",
+            "vertical-lr",
+            "vertical-rl"
+          ],
+          "default": "horizontal-lr"
+        }
+      },
+      "resources": []
+    }
+  }
+}
