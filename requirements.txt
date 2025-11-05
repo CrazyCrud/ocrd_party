@@ -1,4 +1,4 @@
-kraken >= 5.2.0
+kraken
 ocrd
-party>=0.0.1
-albumentations==1.4.0
+party
+albumentations

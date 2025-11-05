@@ -22,10 +22,10 @@ classifiers = [
 ]
 
 dependencies = [
-    "ocrd>=2.30.0",
-    "kraken>=5.2.0",
-    "party>=0.0.1",
-    "albumentations==1.4.0"
+    "ocrd",
+    "kraken",
+    "party",
+    "albumentations"
 ]
 
 [project.optional-dependencies]
