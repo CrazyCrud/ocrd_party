@@ -15,11 +15,10 @@
       "input_file_grp_cardinality": 1,
       "output_file_grp_cardinality": 1,
       "parameters": {
-        "model_dir": {
-          "description": "Directory containing Party model file (model.safetensors)",
+        "model": {
+          "description": "Party model (path or URI to model.safetensors or a directory containing it)",
           "type": "string",
           "format": "uri",
-          "content-type": "text/directory",
           "required": true
         },
         "device": {
@@ -38,6 +37,11 @@
           "type": "boolean",
           "default": false
         },
+        "features": {
+          "description": "PAGE/@AlternativeImage feature selector",
+          "type": "string",
+          "default": ""
+        },
         "text_direction": {
           "description": "Principal text direction for reading order",
           "type": "string",
@@ -48,6 +52,33 @@
             "vertical-rl"
           ],
           "default": "horizontal-lr"
+        },
+        "textequiv_level": {
+          "description": "Lowest PAGE level to store recognition results",
+          "type": "string",
+          "enum": ["line", "word"],
+          "default": "line"
+        },
+        "add_lang_token": {
+          "description": "Add language token to Party prompts (if model supports it)",
+          "type": "boolean",
+          "default": false
+        },
+        "languages": {
+          "description": "Language codes for conditioning Party (optional)",
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+               "compile": {
+          "description": "Use torch.compile for the model",
+          "type": "boolean",
+          "default": false
+        },
+        "quantize": {
+          "description": "Apply torchao auto-quantization",
+          "type": "boolean",
+          "default": false
         }
       },
       "resources": []

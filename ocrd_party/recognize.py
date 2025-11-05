@@ -25,6 +25,7 @@ from ocrd_utils import (
     VERSION as OCRD_VERSION
 )
 
+from kraken.containers import Segmentation, BaselineLine
 from party.fusion import PartyModel
 from party.pred import batched_pred
 from lightning.fabric import Fabric
@@ -47,47 +48,50 @@ class PartyRecognize(Processor):
         """
         Load the Party model once and prepare Fabric.
         """
-        # Model loading
-        model_path = self.parameter['model_path']
-        if not model_path:
-            # Could use default HTRMoPo model
-            model_path = self.parameter.get('model_htr_mopo', '10.5281/zenodo.14616981')
-            if model_path:
-                from htrmopo import get_model
-                model_path = get_model(model_path) / 'model.safetensors'
+
+        parameter = dict(self.parameter)
+
+        # mirror kraken: required parameter "model"
+        model_arg = parameter['model']  # required, so [] is OK here
+        model_path = self.resolve_resource(model_arg)
+
+        # accept either a directory (containing model.safetensors) or a direct file path
+        if os.path.isdir(model_path):
+            model_path = os.path.join(model_path, 'model.safetensors')
+
+        model_path = str(model_path)
 
         self.logger.info(f"Loading Party model from {model_path}")
         self.model = PartyModel.from_safetensors(model_path)
 
         # Device setup
-        device = self.parameter.get('device', 'cpu')
+        device = parameter.get('device', 'cpu')
         if device.startswith('cuda') and not torch.cuda.is_available():
             self.logger.warning("CUDA requested but not available, falling back to CPU")
             device = 'cpu'
 
-        # Precision setup
-        precision = self.parameter.get('precision', '32-true')
+        # map 'autocast' to Fabric precision, if you keep that name
+        autocast = parameter.get('autocast', False)
+        precision = '16-mixed' if autocast else '32-true'
 
-        # Initialize Fabric
+        self.languages = parameter.get('languages', [])
+
+        from lightning.fabric import Fabric
         self.fabric = Fabric(
             accelerator='gpu' if device.startswith('cuda') else 'cpu',
             devices=1,
             precision=precision
         )
-
-        # Setup model with Fabric
         self.model = self.fabric.setup(self.model)
 
-        # Compilation if requested
-        if self.parameter.get('compile', False):
+        if parameter.get('compile', False):
             try:
                 self.logger.info("Compiling model with torch.compile")
                 self.model = torch.compile(self.model, mode='max-autotune')
             except Exception as e:
                 self.logger.warning(f"Model compilation failed: {e}")
 
-        # Quantization if requested
-        if self.parameter.get('quantize', False):
+        if parameter.get('quantize', False):
             try:
                 import torchao
                 self.logger.info("Quantizing model")
@@ -96,18 +100,23 @@ class PartyRecognize(Processor):
             except Exception as e:
                 self.logger.warning(f"Model quantization failed: {e}")
 
-        self.batch_size = self.parameter.get('batch_size', 4)
-        self.add_lang_token = self.parameter.get('add_lang_token', False)
+        self.batch_size = parameter.get('batch_size', 4)
+        self.add_lang_token = parameter.get('add_lang_token', False)
         self.textequiv_level = self.parameter.get('textequiv_level', 'line')
-        self.glyph_conf_cutoff = self.parameter.get('glyph_conf_cutoff', 0.1)
-
-        # Features for image extraction
-        self.features = self.parameter.get('features', '')
+        if self.textequiv_level not in ('line', 'word'):
+            self.logger.warning(
+                "Unsupported textequiv_level '%s' requested. Falling back to 'line'. "
+                "Glyph-level output is not supported in ocrd-party-recognize.",
+                self.textequiv_level
+            )
+            self.textequiv_level = 'line'
+        self.features = parameter.get('features', '')
 
     @cached_property
     def _prompt_mode(self):
         """Get the prompt mode from the model."""
-        return getattr(self.model, 'line_prompt_mode', 'curves')
+        mdl = getattr(self.model, 'module', self.model)
+        return getattr(mdl, 'line_prompt_mode', 'curves')
 
     def process_page_pcgts(self, *input_pcgts: Optional[OcrdPage], page_id: Optional[str] = None) -> OcrdPageResult:
         """
@@ -155,53 +164,40 @@ class PartyRecognize(Processor):
             self.logger.warning(f"No valid text lines on page '{page_id}'")
             return OcrdPageResult(pcgts)
 
-        # Build Kraken container for Party
-        from kraken.containers import Segmentation, BaselineLine
-
         baselines = []
         line_mapping = {}  # Map BaselineLine ID to original line object
 
         for idx, line_data in enumerate(all_lines):
             line = line_data['line']
-            line_coords = line_data['coords']
 
-            # Get baseline or fall back to polygon
+            # Baseline in PAGE coords (if present)
             if line.get_Baseline():
-                baseline_points = [(pt.x, pt.y) for pt in line.get_Baseline().points]
+                baseline_page = [(pt.x, pt.y) for pt in line.get_Baseline().points]
             else:
-                # Create pseudo-baseline from polygon center line
+                # Fallback: pseudo-baseline derived from Coords (also in PAGE coords)
                 coords = line.get_Coords()
                 if coords:
                     polygon = [(pt.x, pt.y) for pt in coords.points]
-                    # Simple center line: top-center to bottom-center
                     xs = [p[0] for p in polygon]
                     ys = [p[1] for p in polygon]
                     x_center = (min(xs) + max(xs)) / 2
-                    baseline_points = [(x_center, min(ys)), (x_center, max(ys))]
+                    baseline_page = [(x_center, min(ys)), (x_center, max(ys))]
                 else:
                     self.logger.warning(f"Line '{line.id}' has no baseline or coords, skipping")
                     continue
 
-            # Convert to page coordinates
-            baseline_page = coordinates_for_segment(
-                np.array(baseline_points), None, line_coords
-            )
-
-            # Get boundary polygon
             if line.get_Coords():
-                boundary = [(pt.x, pt.y) for pt in line.get_Coords().points]
-                boundary_page = coordinates_for_segment(
-                    np.array(boundary), None, line_coords
-                )
+                polygon = [(pt.x, pt.y) for pt in line.get_Coords().points]
             else:
-                boundary_page = baseline_page
+                polygon = baseline_page
 
-            # Create BaselineLine for Party
-            bl_id = f"line_{idx}"
+            boundary_page = [polygon]  # list of one polygon
+
+            bl_id = line.id  # no need to invent new IDs
             bl = BaselineLine(
                 id=bl_id,
-                baseline=baseline_page.tolist(),
-                boundary=boundary_page.tolist(),
+                baseline=baseline_page,
+                boundary=boundary_page,
                 tags=[]
             )
             baselines.append(bl)
@@ -211,7 +207,9 @@ class PartyRecognize(Processor):
         segmentation = Segmentation(
             text_direction=self.parameter.get('text_direction', 'horizontal-lr'),
             imagename=page_id or 'page',
-            type='baselines' if self._prompt_mode == 'curves' else 'bbox',
+            # type is mostly irrelevant if you pass prompt_mode explicitly,
+            # but 'bbox' / 'baseline' semantics are nice to keep
+            type='bbox' if self._prompt_mode == 'boxes' else 'baseline',
             lines=baselines,
             regions={},
             script_detection=False,
@@ -219,9 +217,8 @@ class PartyRecognize(Processor):
         )
 
         # Set languages if specified
-        languages = self.parameter.get('languages', [])
-        if languages:
-            segmentation.language = languages
+        if self.languages:
+            segmentation.language = self.languages
 
         # Run prediction
         self.logger.info(f"Running Party prediction on {len(baselines)} lines")
@@ -273,9 +270,12 @@ class PartyRecognize(Processor):
                     line.set_custom(custom)
 
                 # Handle word segmentation if requested
-                if self.textequiv_level in ['word', 'glyph']:
+                if self.textequiv_level == 'word':
                     self._segment_into_words(
-                        line, pred, line_data['image'].height, line_coords
+                        line, pred,
+                        line_height=line_data['image'].height,
+                        line_width=line_data['image'].width,
+                        line_coords=line_data['coords'],
                     )
 
                 self.logger.debug(f"Recognized line '{line.id}': {pred.prediction[:50]}...")
@@ -285,7 +285,7 @@ class PartyRecognize(Processor):
 
         return OcrdPageResult(pcgts)
 
-    def _segment_into_words(self, line, pred, line_height, line_coords):
+    def _segment_into_words(self, line, pred, line_height, line_width, line_coords):
         """
         Segment line into words based on spaces in prediction.
         """
@@ -300,7 +300,7 @@ class PartyRecognize(Processor):
             return
 
         # Calculate approximate character width
-        line_width = line_coords['transform'][0, 0]  # Approximate from transform
+        line_width = line_coords.get('width', line_width)
         if hasattr(pred, 'positions') and pred.positions:
             # If Party provides character positions, use them
             positions = pred.positions
