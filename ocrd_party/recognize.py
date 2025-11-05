@@ -9,20 +9,19 @@ import numpy as np
 from PIL import Image
 from lxml import etree
 
-from ocrd import Processor, OcrdPage, OcrdPageResult
+from ocrd.processor.base import OcrdPageResult
+from ocrd import Processor
 from ocrd_models.ocrd_page import (
+    OcrdPage,
     TextEquivType,
     CoordsType,
     WordType,
-    GlyphType
 )
 from ocrd_utils import (
-    getLogger,
     points_from_polygon,
     coordinates_for_segment,
     polygon_from_x0y0x1y1,
-    coordinates_of_segment,
-    VERSION as OCRD_VERSION
+    VERSION as OCRD_VERSION,
 )
 
 from kraken.containers import Segmentation, BaselineLine

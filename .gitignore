@@ -61,3 +61,6 @@ venv/
 
 # Tests
 tests/example.json
+
+data
+models

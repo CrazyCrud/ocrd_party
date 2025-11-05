@@ -6,7 +6,27 @@
 *The project is still in progress*
 
 ## Installation
-`pip install . `
+
+```commandline
+git clone https://github.com/mittagessen/party.git ../party
+cd ../party
+pip install .
+
+cd ../ocrd_party
+pip install -r requirements.txt
+pip install .
+```     
+
+Or install via Docker:
+```
+- docker compose build
+- docker-compose run ocrd-yolo
+```
+For CPU only:
+```
+- docker compose build ocrd-yolo-cpu
+- docker-compose run ocrd-yolo-cpu
+```    
 
 Make sure your model directory contains a model.safetensors file compatible with Party.
 
@@ -23,7 +43,7 @@ Assuming you have already run layout and line segmentation (e.g. via ocrd-kraken
 
 Parameters
 
-    model_dir
+    model
     Directory containing model.safetensors.
 
     device

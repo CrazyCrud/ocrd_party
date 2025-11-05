@@ -20,37 +20,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
+dynamic = ["dependencies"]
 
-dependencies = [
-    "ocrd",
-    "kraken",
-    "party",
-    "albumentations"
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=6.0",
-    "pytest-cov>=3.0",
-    "pytest-mock>=3.6",
-    "black>=22.0",
-    "flake8>=4.0",
-    "isort>=5.0",
-    "mypy>=0.910",
-]
-
-test = [
-    "pytest>=6.0",
-    "pytest-cov>=3.0",
-    "pytest-mock>=3.6",
-    "lxml>=4.6",
-]
-
-docs = [
-    "sphinx>=4.0",
-    "sphinx-rtd-theme>=1.0",
-    "myst-parser>=0.18",
-]
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
 
 [project.urls]
 Homepage = "https://github.com/CrazyCrud/ocrd_party"

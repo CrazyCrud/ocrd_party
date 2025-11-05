@@ -61,6 +61,11 @@ RUN ocrd ocrd-tool ocrd-tool.json dump-module-dirs > $(dirname $(ocrd bashlib fi
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
+RUN git clone https://github.com/mittagessen/party.git /tmp/party && \
+    pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir /tmp/party && \
+    pip install --no-cache-dir .
+
 # Clean up build dependencies to reduce image size
 RUN apt-get -y remove --auto-remove g++ && \
     apt-get clean && \
