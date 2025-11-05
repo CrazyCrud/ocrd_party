@@ -9,7 +9,7 @@ description = "OCR-D processor for the party text recognizer (text recognition)"
 authors = [{ name = "Constantin Lehenmeier", email = "info@constantinlehenmeier.de" }]
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = "==3.12"
+requires-python = ">=3.8,<3.13"
 keywords = ["OCR", "OCR-D", "text-recognition", "HTR", "party"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -23,7 +23,7 @@ classifiers = [
 
 dependencies = [
     "ocrd>=2.30.0",
-    "kraken>=5.3.0",
+    "kraken>=5.2.0",
     "party>=0.0.1",
     "albumentations==1.4.0"
 ]

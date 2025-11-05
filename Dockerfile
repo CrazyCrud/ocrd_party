@@ -1,4 +1,3 @@
-# Dockerfile for ocrd_party
 ARG DOCKER_BASE_IMAGE=ocrd/core-cuda-torch:2024
 FROM $DOCKER_BASE_IMAGE
 ARG VCS_REF
