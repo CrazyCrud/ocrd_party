@@ -1,9 +1,9 @@
 # OCR-D wrapper for the party text recognizer
 
 > ocrd_party is an OCR‑D compliant workspace processor that wraps the Party text‐recognizer to perform line‐level OCR on existing <TextLine> baselines in PAGE‑XML documents.     
+>     
 > *party* GitHub project: https://github.com/mittagessen/party
-     
-*The project is still in progress*
+
 
 ## Installation
 
