@@ -34,7 +34,8 @@ Make sure your model directory contains a model.safetensors file compatible with
 
 Assuming you have already run layout and line segmentation (e.g. via ocrd-kraken-segment), recognize all lines in your workspace:
 
-```ocrd-party-recognize \
+```
+ocrd-party-recognize \
   -I OCR-D-SEG -O OCR-D-TXT \
   -P model /path/to/party/model \
   -P device cuda \
