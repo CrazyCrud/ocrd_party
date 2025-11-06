@@ -165,14 +165,13 @@ class PartyRecognize(Processor):
             return OcrdPageResult(pcgts)
 
         baselines = []
-        line_mapping = {}  # Map BaselineLine ID to original line object
+        active_lines = []  # only lines that actually end up in the segmentation
 
-        for idx, line_data in enumerate(all_lines):
+        for line_data in all_lines:
             line = line_data['line']
 
             # Baseline in PAGE coords (if present)
             if line.get_Baseline():
-                # parse "x,y x,y ..." into list of [x, y]
                 baseline_page = _points_to_list(line.get_Baseline().points)
             else:
                 # Fallback: pseudo-baseline derived from Coords (also in PAGE coords)
@@ -194,15 +193,14 @@ class PartyRecognize(Processor):
                 polygon = baseline_page
             boundary_page = [polygon]
 
-            bl_id = line.id
             bl = BaselineLine(
-                id=bl_id,
+                id=line.id,
                 baseline=baseline_page,
                 boundary=boundary_page,
                 tags=[]
             )
             baselines.append(bl)
-            line_mapping[bl_id] = line_data
+            active_lines.append(line_data)
 
         # Create segmentation container
         segmentation = Segmentation(
@@ -235,18 +233,23 @@ class PartyRecognize(Processor):
             )
 
             # Process predictions
-            for pred in pred_iter:
-                if pred.line.id not in line_mapping:
-                    self.logger.warning(f"Prediction for unknown line ID: {pred.line.id}")
-                    continue
+            for idx, pred in enumerate(pred_iter):
+                if idx >= len(active_lines):
+                    self.logger.warning(
+                        "Received more predictions (%d) than lines (%d)",
+                        idx + 1, len(active_lines)
+                    )
+                    break
 
-                line_data = line_mapping[pred.line.id]
+                line_data = active_lines[idx]
                 line = line_data['line']
                 line_coords = line_data['coords']
 
                 # Clear existing text
                 if line.get_TextEquiv():
-                    self.logger.warning(f"Line '{line.id}' already contained text results")
+                    self.logger.warning(
+                        f"Line '{line.id}' already contained text results"
+                    )
                 line.set_TextEquiv([])
 
                 # Calculate average confidence
@@ -272,13 +275,18 @@ class PartyRecognize(Processor):
                 # Handle word segmentation if requested
                 if self.textequiv_level == 'word':
                     self._segment_into_words(
-                        line, pred,
+                        line=line,
+                        pred=pred,
                         line_height=line_data['image'].height,
                         line_width=line_data['image'].width,
-                        line_coords=line_data['coords'],
+                        line_coords=line_coords,  # <-- now we use the local variable
                     )
 
-                self.logger.debug(f"Recognized line '{line.id}': {pred.prediction[:50]}...")
+                self.logger.debug(
+                    "Recognized line '%s': %s",
+                    line.id,
+                    pred.prediction[:50] + ("..." if len(pred.prediction) > 50 else "")
+                )
 
         # Update higher-level text equivalences
         _page_update_higher_textequiv_levels(self.textequiv_level, pcgts)

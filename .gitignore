@@ -64,3 +64,5 @@ tests/example.json
 
 data
 models
+
+.python-version
