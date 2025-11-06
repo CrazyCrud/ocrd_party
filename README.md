@@ -20,12 +20,12 @@ pip install .
 Or install via Docker:
 ```
 - docker compose build
-- docker-compose run ocrd-yolo
+- docker-compose run ocrd-party
 ```
 For CPU only:
 ```
-- docker compose build ocrd-yolo-cpu
-- docker-compose run ocrd-yolo-cpu
+- docker compose build ocrd-party-cpu
+- docker-compose run ocrd-party-cpu
 ```    
 
 Make sure your model directory contains a model.safetensors file compatible with Party.
