@@ -22,6 +22,9 @@ from ocrd_utils import (
     coordinates_for_segment,
     polygon_from_x0y0x1y1,
     polygon_from_points,
+    coordinates_of_segment,  # already there
+    bbox_from_polygon,  # NEW
+    transform_coordinates,  # NEW
     VERSION as OCRD_VERSION,
 )
 
@@ -154,10 +157,10 @@ class PartyRecognize(Processor):
                     continue
 
                 all_lines.append({
-                    'line': line,
-                    'image': line_image,
-                    'coords': line_coords,
-                    'region_id': region.id
+                    "line": line,
+                    "image": line_image,
+                    "coords": line_coords,
+                    "region_id": region.id,
                 })
 
         if not all_lines:
@@ -165,54 +168,55 @@ class PartyRecognize(Processor):
             return OcrdPageResult(pcgts)
 
         baselines = []
-        active_lines = []  # only lines that actually end up in the segmentation
+        active_lines = []
+        line_mapping = {}
 
         for line_data in all_lines:
-            line = line_data['line']
+            line = line_data["line"]
 
-            # Baseline in PAGE coords (if present)
+            # Get boundary polygon in IMAGE coords (same as page_image)
+            poly_img = np.array(
+                coordinates_of_segment(line, None, page_coords),
+                dtype=float,
+            )
+            if poly_img.size == 0:
+                self.logger.warning("Line '%s' has empty polygon, skipping", line.id)
+                continue
+
+            # Compute baseline in IMAGE coords
             if line.get_Baseline():
-                baseline_page = _points_to_list(line.get_Baseline().points)
+                # start from PAGE coords, then transform into image coords
+                base = np.array(polygon_from_points(line.get_Baseline().points), dtype=float)
+                base_img = transform_coordinates(base, page_coords["transform"])
             else:
-                # Fallback: pseudo-baseline derived from Coords (also in PAGE coords)
-                coords = line.get_Coords()
-                if coords:
-                    polygon = _points_to_list(coords.points)
-                    xs = [p[0] for p in polygon]
-                    ys = [p[1] for p in polygon]
-                    x_center = (min(xs) + max(xs)) / 2
-                    baseline_page = [(x_center, min(ys)), (x_center, max(ys))]
-                else:
-                    self.logger.warning(f"Line '{line.id}' has no baseline or coords, skipping")
-                    continue
+                # fallback: pseudo-baseline near the bottom of the line bbox
+                xmin, ymin, xmax, ymax = bbox_from_polygon(poly_img)
+                ymid = ymin + 0.8 * (ymax - ymin)
+                base_img = np.array([[xmin, ymid], [xmax, ymid]], dtype=float)
 
-            # Boundary polygon in PAGE coords (as list of polygons)
-            if line.get_Coords():
-                polygon = _points_to_list(line.get_Coords().points)
-            else:
-                polygon = baseline_page
-            boundary_page = [polygon]
+            baseline_page = [(float(x), float(y)) for x, y in base_img]
+            boundary_page = [poly_img.tolist()]
 
+            bl_id = line.id
             bl = BaselineLine(
-                id=line.id,
+                id=bl_id,
                 baseline=baseline_page,
                 boundary=boundary_page,
-                tags=[]
+                tags=[],
             )
             baselines.append(bl)
             active_lines.append(line_data)
+            line_mapping[bl_id] = line_data
 
         # Create segmentation container
         segmentation = Segmentation(
             text_direction=self.parameter.get('text_direction', 'horizontal-lr'),
             imagename=page_id or 'page',
-            # type is mostly irrelevant if you pass prompt_mode explicitly,
-            # but 'bbox' / 'baseline' semantics are nice to keep
-            type='bbox' if self._prompt_mode == 'boxes' else 'baseline',
+            type='baseline',
             lines=baselines,
             regions={},
             script_detection=False,
-            line_orders=[]
+            line_orders=[],
         )
 
         # Set languages if specified
@@ -229,26 +233,38 @@ class PartyRecognize(Processor):
                 bounds=segmentation,
                 fabric=self.fabric,
                 batch_size=self.batch_size,
-                add_lang_token=self.add_lang_token
+                add_lang_token=self.add_lang_token,
             )
 
             # Process predictions
             for idx, pred in enumerate(pred_iter):
-                if idx >= len(active_lines):
-                    self.logger.warning(
-                        "Received more predictions (%d) than lines (%d)",
-                        idx + 1, len(active_lines)
-                    )
-                    break
+                # 1st choice: use pred.line.id (Party keeps the segmentation line there)
+                pred_line = getattr(pred, "line", None)
+                pred_line_id = getattr(pred_line, "id", None) if pred_line is not None else None
 
-                line_data = active_lines[idx]
-                line = line_data['line']
-                line_coords = line_data['coords']
+                if pred_line_id in line_mapping:
+                    line_data = line_mapping[pred_line_id]
+                else:
+                    # Fallback: rely on order if for some reason pred.line is missing
+                    if idx >= len(active_lines):
+                        self.logger.warning(
+                            "Received more predictions (%d) than lines (%d)",
+                            idx + 1, len(active_lines)
+                        )
+                        break
+                    self.logger.warning(
+                        "Prediction without usable line id at index %d; falling back to index mapping",
+                        idx,
+                    )
+                    line_data = active_lines[idx]
+
+                line = line_data["line"]
+                line_coords = line_data["coords"]
 
                 # Clear existing text
                 if line.get_TextEquiv():
                     self.logger.warning(
-                        f"Line '{line.id}' already contained text results"
+                        "Line '%s' already contained text results", line.id
                     )
                 line.set_TextEquiv([])
 
@@ -264,8 +280,8 @@ class PartyRecognize(Processor):
                 ])
 
                 # Add language info to custom field if detected
-                if hasattr(pred, 'language') and pred.language:
-                    custom = line.get_custom() or ''
+                if hasattr(pred, "language") and pred.language:
+                    custom = line.get_custom() or ""
                     if not custom:
                         custom = f"language: {','.join(pred.language)}"
                     else:
@@ -273,19 +289,19 @@ class PartyRecognize(Processor):
                     line.set_custom(custom)
 
                 # Handle word segmentation if requested
-                if self.textequiv_level == 'word':
+                if self.textequiv_level == "word":
                     self._segment_into_words(
                         line=line,
                         pred=pred,
-                        line_height=line_data['image'].height,
-                        line_width=line_data['image'].width,
-                        line_coords=line_coords,  # <-- now we use the local variable
+                        line_height=line_data["image"].height,
+                        line_width=line_data["image"].width,
+                        line_coords=line_coords,
                     )
 
                 self.logger.debug(
                     "Recognized line '%s': %s",
                     line.id,
-                    pred.prediction[:50] + ("..." if len(pred.prediction) > 50 else "")
+                    pred.prediction[:50] + ("..." if len(pred.prediction) > 50 else ""),
                 )
 
         # Update higher-level text equivalences
