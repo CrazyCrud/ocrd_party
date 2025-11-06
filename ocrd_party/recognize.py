@@ -12,6 +12,7 @@ from lxml import etree
 from ocrd.processor.base import OcrdPageResult
 from ocrd import Processor
 from ocrd_models.ocrd_page import (
+    BaselineType,
     OcrdPage,
     TextEquivType,
     CoordsType,
@@ -185,14 +186,21 @@ class PartyRecognize(Processor):
 
             # Compute baseline in IMAGE coords
             if line.get_Baseline():
-                # start from PAGE coords, then transform into image coords
+                # baseline defined in PAGE coords -> transform to image coords
                 base = np.array(polygon_from_points(line.get_Baseline().points), dtype=float)
                 base_img = transform_coordinates(base, page_coords["transform"])
             else:
-                # fallback: pseudo-baseline near the bottom of the line bbox
+                # fallback: pseudo-baseline near the bottom of the line bbox (in image coords)
                 xmin, ymin, xmax, ymax = bbox_from_polygon(poly_img)
                 ymid = ymin + 0.8 * (ymax - ymin)
                 base_img = np.array([[xmin, ymid], [xmax, ymid]], dtype=float)
+
+                # ALSO write this dummy baseline back into PAGE coords so
+                # kraken/party CLI can see it later.
+                base_page = coordinates_for_segment(base_img, None, page_coords)
+                line.set_Baseline(
+                    BaselineType(points=points_from_polygon(base_page))
+                )
 
             baseline_page = [(float(x), float(y)) for x, y in base_img]
             boundary_page = [poly_img.tolist()]
