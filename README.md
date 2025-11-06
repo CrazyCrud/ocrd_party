@@ -8,11 +8,11 @@
 ## Installation
 
 ```commandline
-git clone https://github.com/mittagessen/party.git ../party
-cd ../party
+git clone https://github.com/mittagessen/party.git <path-to>/party
+cd <path-to>/party
 pip install .
 
-cd ../ocrd_party
+cd <path-to>/ocrd_party
 pip install -r requirements.txt
 pip install .
 ```     
@@ -36,9 +36,9 @@ Assuming you have already run layout and line segmentation (e.g. via ocrd-kraken
 
 ```ocrd-party-recognize \
   -I OCR-D-SEG -O OCR-D-TXT \
-  -P model_dir=/path/to/party/model \
-  -P device=cuda:0 \
-  -P batch_size=8
+  -P model /path/to/party/model \
+  -P device cuda \
+  -P batch_size 8
 ```
 
 Parameters

@@ -21,6 +21,7 @@ from ocrd_utils import (
     points_from_polygon,
     coordinates_for_segment,
     polygon_from_x0y0x1y1,
+    polygon_from_points,
     VERSION as OCRD_VERSION,
 )
 
@@ -171,12 +172,13 @@ class PartyRecognize(Processor):
 
             # Baseline in PAGE coords (if present)
             if line.get_Baseline():
-                baseline_page = [(pt.x, pt.y) for pt in line.get_Baseline().points]
+                # parse "x,y x,y ..." into list of [x, y]
+                baseline_page = _points_to_list(line.get_Baseline().points)
             else:
                 # Fallback: pseudo-baseline derived from Coords (also in PAGE coords)
                 coords = line.get_Coords()
                 if coords:
-                    polygon = [(pt.x, pt.y) for pt in coords.points]
+                    polygon = _points_to_list(coords.points)
                     xs = [p[0] for p in polygon]
                     ys = [p[1] for p in polygon]
                     x_center = (min(xs) + max(xs)) / 2
@@ -185,14 +187,14 @@ class PartyRecognize(Processor):
                     self.logger.warning(f"Line '{line.id}' has no baseline or coords, skipping")
                     continue
 
+            # Boundary polygon in PAGE coords (as list of polygons)
             if line.get_Coords():
-                polygon = [(pt.x, pt.y) for pt in line.get_Coords().points]
+                polygon = _points_to_list(line.get_Coords().points)
             else:
                 polygon = baseline_page
+            boundary_page = [polygon]
 
-            boundary_page = [polygon]  # list of one polygon
-
-            bl_id = line.id  # no need to invent new IDs
+            bl_id = line.id
             bl = BaselineLine(
                 id=bl_id,
                 baseline=baseline_page,
@@ -228,7 +230,6 @@ class PartyRecognize(Processor):
                 im=page_image,
                 bounds=segmentation,
                 fabric=self.fabric,
-                prompt_mode=self._prompt_mode,
                 batch_size=self.batch_size,
                 add_lang_token=self.add_lang_token
             )
@@ -395,3 +396,13 @@ def _page_update_higher_textequiv_levels(level, pcgts):
                 for line in lines
             )
             region.set_TextEquiv([TextEquivType(Unicode=region_unicode)])
+
+
+def _points_to_list(points):
+    """
+    Normalize PAGE points (string/list) to a list of (x, y) tuples.
+    Works whether polygon_from_points returns a list or a numpy array.
+    """
+    poly = polygon_from_points(points)
+    # poly can be a numpy array or a list of [x, y]
+    return [(float(p[0]), float(p[1])) for p in poly]
