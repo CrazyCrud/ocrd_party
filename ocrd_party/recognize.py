@@ -1,13 +1,10 @@
 import os
-import uuid
 from functools import cached_property
 from typing import Optional
-import logging
+import re
 
 import torch
 import numpy as np
-from PIL import Image
-from lxml import etree
 
 from ocrd.processor.base import OcrdPageResult
 from ocrd import Processor
@@ -32,7 +29,6 @@ from ocrd_utils import (
 from kraken.containers import Segmentation, BaselineLine
 from party.fusion import PartyModel
 from party.pred import batched_pred
-from lightning.fabric import Fabric
 
 
 class PartyRecognize(Processor):
@@ -78,7 +74,7 @@ class PartyRecognize(Processor):
         autocast = parameter.get('autocast', False)
         precision = '16-mixed' if autocast else '32-true'
 
-        self.languages = parameter.get('languages', [])
+        self.language = parameter.get('language', '').strip()
 
         from lightning.fabric import Fabric
         self.fabric = Fabric(
@@ -105,7 +101,7 @@ class PartyRecognize(Processor):
                 self.logger.warning(f"Model quantization failed: {e}")
 
         self.batch_size = parameter.get('batch_size', 4)
-        self.add_lang_token = parameter.get('add_lang_token', False)
+        self.add_lang_token = bool(parameter.get('add_lang_token', bool(self.language)))
         self.textequiv_level = self.parameter.get('textequiv_level', 'line')
         if self.textequiv_level not in ('line', 'word'):
             self.logger.warning(
@@ -115,6 +111,11 @@ class PartyRecognize(Processor):
             )
             self.textequiv_level = 'line'
         self.features = parameter.get('features', '')
+
+        self.debug_dir = parameter.get('debug_dir', '')
+        if self.debug_dir:
+            os.makedirs(self.debug_dir, exist_ok=True)
+            self.logger.info("Debug crops will be written to '%s'", self.debug_dir)
 
     @cached_property
     def _prompt_mode(self):
@@ -205,6 +206,10 @@ class PartyRecognize(Processor):
             baseline_page = [(float(x), float(y)) for x, y in base_img]
             boundary_page = [poly_img.tolist()]
 
+            # store bbox for later cropping (debug)
+            xmin, ymin, xmax, ymax = bbox_from_polygon(poly_img)
+            line_data["bbox_img"] = (xmin, ymin, xmax, ymax)
+
             bl_id = line.id
             bl = BaselineLine(
                 id=bl_id,
@@ -227,9 +232,9 @@ class PartyRecognize(Processor):
             line_orders=[],
         )
 
-        # Set languages if specified
-        if self.languages:
-            segmentation.language = self.languages
+        # Set language if specified
+        if self.language:
+            segmentation.language = self.language
 
         # Run prediction
         self.logger.info(f"Running Party prediction on {len(baselines)} lines")
@@ -305,6 +310,37 @@ class PartyRecognize(Processor):
                         line_width=line_data["image"].width,
                         line_coords=line_coords,
                     )
+
+                if self.debug_dir:
+                    bbox = line_data.get("bbox_img")
+                    if bbox is not None:
+                        xmin, ymin, xmax, ymax = bbox
+                        # pad a bit for nicer context
+                        pad = 4
+                        x0 = max(int(xmin) - pad, 0)
+                        y0 = max(int(ymin) - pad, 0)
+                        x1 = min(int(xmax) + pad, page_image.width)
+                        y1 = min(int(ymax) + pad, page_image.height)
+
+                        crop = page_image.crop((x0, y0, x1, y1))
+
+                        safe_id = _sanitize_filename(line.id or f"line_{idx}")
+                        # keep the text short in filename
+                        short_text = _sanitize_filename(pred.prediction[:30])
+                        filename = f"{page_id or 'page'}_{safe_id}_{idx:04d}_{short_text}.png"
+                        out_path = os.path.join(self.debug_dir, filename)
+                        try:
+                            crop.save(out_path)
+                        except Exception as e:
+                            self.logger.warning(
+                                "Failed to save debug crop for line '%s' to '%s': %s",
+                                line.id, out_path, e
+                            )
+                    else:
+                        self.logger.debug(
+                            "No bbox_img stored for line '%s', cannot write debug crop",
+                            line.id,
+                        )
 
                 self.logger.debug(
                     "Recognized line '%s': %s",
@@ -438,3 +474,14 @@ def _points_to_list(points):
     poly = polygon_from_points(points)
     # poly can be a numpy array or a list of [x, y]
     return [(float(p[0]), float(p[1])) for p in poly]
+
+
+def _sanitize_filename(s: str) -> str:
+    """
+    Make a safe filename fragment from a line id or text.
+    """
+    s = re.sub(r'\s+', '_', s)
+    s = re.sub(r'[^A-Za-z0-9_.-]+', '', s)
+    if not s:
+        s = "line"
+    return s[:80]

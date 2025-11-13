@@ -70,7 +70,7 @@
           "items": { "type": "string" },
           "default": []
         },
-               "compile": {
+        "compile": {
           "description": "Use torch.compile for the model",
           "type": "boolean",
           "default": false
@@ -79,6 +79,11 @@
           "description": "Apply torchao auto-quantization",
           "type": "boolean",
           "default": false
+        },
+        "debug_dir": {
+          "description": "Directory to write per-line debug crops (optional)",
+          "type": "string",
+          "default": ""
         }
       },
       "resources": []
