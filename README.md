@@ -52,3 +52,8 @@ Parameters
 
     batch_size
     Number of lines to process in parallel.
+
+## Remark
+ChatGPT 4.5 as well as Claude Opus 4.5 have been used to generate this OCR-D extension.
+At the beginning, the kraken extension was used as an example: [github.com/bertsky/ocrd_detectron2](https://github.com/OCR-D/ocrd_kraken)
+Generated code has been manually tested and iteratively improved using the listed models.
